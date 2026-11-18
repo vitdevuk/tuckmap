@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tuckmap | Every kitchen in town on one map</title>
+<meta name="description" content="Sample website for a fictional food ordering app: a live map of real UK takeaways and restaurants from the official food hygiene register, sample menus and a transparent £1.50 service price.">
+<script>
+// Theme before first paint (no flash): saved choice, else the system setting.
+(function () { var t; try { t = localStorage.getItem("tm-theme"); } catch (e) {}
+  document.documentElement.dataset.theme = t === "light" || t === "dark" ? t : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* .night = parts that sit on a dark photograph and keep the dark colours in the light theme too */
+:root, .night { --bg:#15100b; --card:#201810; --ink:#f7efe4; --dim:#b9aa96; --line:#f7efe41f; --hot:#ff5a36; --gold:#f5b53f; --leaf:#6cc27a; --note-bg:#f5b53f14; --note-line:#f5b53f44; --note-ink:#f1dcae; }
+:root { --pad:clamp(16px,4.5vw,60px); color-scheme:dark; }
+:root[data-theme="light"] { --bg:#fbf6ee; --card:#fff; --ink:#1f1710; --dim:#6b5f51; --line:#1f171022; --hot:#dc4420; --gold:#a8690a; --leaf:#2c8a43; --note-bg:#a8690a14; --note-line:#a8690a55; --note-ink:#6f4605; color-scheme:light; }
+.night { color:var(--ink); color-scheme:dark; }
+* { box-sizing:border-box; margin:0; }
+html { scroll-behavior:smooth; }
+body { background:var(--bg); color:var(--ink); font:400 16px/1.6 Inter,system-ui,sans-serif; overflow-x:hidden; -webkit-font-smoothing:antialiased; transition:background .3s, color .3s; }
+img { display:block; width:100%; height:100%; object-fit:cover; }
+a { color:inherit; text-decoration:none; }
+h1,h2,h3 { font-family:Fraunces,Georgia,serif; font-weight:700; line-height:1.02; letter-spacing:-.02em; overflow-wrap:break-word; }
+h1 { font-size:clamp(44px,8vw,118px); }
+h2 { font-size:clamp(34px,5.2vw,72px); }
+h3 { font-size:clamp(22px,2.2vw,30px); }
+em { font-style:italic; font-weight:500; color:var(--gold); }
+.eyebrow { font:700 12px/1.4 Inter,sans-serif; letter-spacing:.22em; text-transform:uppercase; color:var(--hot); }
+/* Arabic and Persian letters join, so tracking breaks them; tall scripts need more leading and no slanted italic. */
+:lang(ar), :lang(fa) { letter-spacing:0 !important; }
+:is(h1,h2,h3):is(:lang(ar),:lang(fa),:lang(he),:lang(ja),:lang(zh)) { line-height:1.22; }
+em:is(:lang(ar),:lang(fa),:lang(he),:lang(ja),:lang(zh)) { font-style:normal; }
+.btn { display:inline-flex; align-items:center; gap:8px; padding:14px 24px; border-radius:999px; background:var(--hot); color:#fff; font:600 15px Inter,sans-serif; border:0; cursor:pointer; transition:transform .25s, background .25s; white-space:nowrap; }
+.btn:hover { transform:translateY(-2px); filter:brightness(1.12); }
+.btn.ghost { background:#ffffff1c; backdrop-filter:blur(6px); }
+:is(a,button,input,select):focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
+.wrap { padding:clamp(64px,9vw,130px) var(--pad); }
+.lead { color:var(--dim); font-size:18px; max-width:560px; margin-top:18px; }
+
+.nav { position:fixed; inset:0 0 auto 0; z-index:1000; display:flex; align-items:center; gap:28px; padding:16px var(--pad); color:#f7efe4; transition:background .3s, color .3s, box-shadow .3s; }
+.nav.solid { color:var(--ink); background:color-mix(in srgb,var(--bg) 91%,transparent); backdrop-filter:blur(10px); box-shadow:0 1px 0 var(--line); }
+.nav .logo { font:700 24px Fraunces,serif; margin-inline-end:auto; }
+.nav .logo b { color:var(--hot); }
+.nav .link { font-size:14px; font-weight:500; opacity:.85; }
+.nav .link:hover { opacity:1; }
+.nav .btn { padding:10px 18px; font-size:14px; }
+.tools { display:flex; align-items:center; gap:10px; }
+.tools select { width:auto; padding:7px 10px; border-radius:999px; background:transparent; color:inherit; border:1px solid color-mix(in srgb,currentColor 35%,transparent); font:600 13px Inter,sans-serif; cursor:pointer; }
+.tools select option { color:var(--ink); background:var(--bg); }
+.theme { display:flex; gap:2px; padding:2px; border-radius:999px; border:1px solid color-mix(in srgb,currentColor 35%,transparent); }
+.theme button { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:50%; background:none; color:inherit; cursor:pointer; opacity:.7; }
+.theme button[aria-pressed="true"] { background:color-mix(in srgb,currentColor 24%,transparent); opacity:1; }
+.theme svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+@media (max-width:1040px) { .nav .link { display:none; } }
+@media (max-width:600px) { .nav { gap:10px; } .nav > .btn { display:none; } }
+
+.hero { position:relative; min-height:100svh; display:grid; align-content:end; padding:0 var(--pad) clamp(28px,6vh,64px); overflow:hidden; }
+.hero .bg { position:absolute; inset:0; }
+.hero .bg img { animation:zoom 24s ease-out both; }
+@keyframes zoom { from { transform:scale(1.18); } to { transform:scale(1); } }
+.hero::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg,#15100b99 0%,#15100b33 30%,#15100bf2 92%); }
+.hero > :not(.bg) { position:relative; z-index:1; }
+.hero .lead { color:#eadfce; }
+.hero .cta { display:flex; flex-wrap:wrap; gap:12px; margin-top:28px; }
+.facts { display:flex; flex-wrap:wrap; gap:10px 44px; margin-top:clamp(28px,5vh,56px); padding-top:18px; border-top:1px solid #ffffff33; font-size:14px; color:#dccfbb; }
+.facts b { font:700 28px Fraunces,serif; color:#fff; margin-inline-end:8px; }
+
+/* Scroll-driven kitchens: one real photograph per kitchen, cross-faded by scroll position */
+.cine { position:relative; height:calc(8 * 70vh + 100vh); }
+.stage { position:sticky; top:0; height:100svh; overflow:hidden; background:#15100b; }
+.slide { position:absolute; inset:0; opacity:0; transition:opacity .9s ease; }
+.slide.on { opacity:1; }
+.slide img { transform:scale(1.14); transition:transform 7s ease-out; }
+.slide.on img { transform:scale(1); }
+.slide::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,#15100be6 0%,#15100b66 45%,#15100b1a 100%), linear-gradient(0deg,#15100bcc,#0000 40%); }
+[dir="rtl"] .slide::after { background:linear-gradient(270deg,#15100be6 0%,#15100b66 45%,#15100b1a 100%), linear-gradient(0deg,#15100bcc,#0000 40%); }
+.slide figcaption { position:absolute; z-index:1; inset-inline:var(--pad); bottom:14vh; max-width:640px; transform:translateY(22px); transition:transform .9s cubic-bezier(.2,.7,.2,1); }
+.slide.on figcaption { transform:none; }
+.slide figcaption p:last-child { font-size:19px; color:#eadfce; margin-top:14px; max-width:440px; }
+.count { position:absolute; z-index:2; inset-inline-end:var(--pad); top:92px; font:700 13px Inter; letter-spacing:.2em; color:var(--gold); }
+.bar { position:absolute; z-index:2; inset:auto 0 0 0; height:3px; background:var(--hot); transform-origin:0 50%; transform:scaleX(var(--p,0)); }
+[dir="rtl"] .bar { transform-origin:100% 50%; }
+
+.finder { display:grid; grid-template-columns:300px minmax(0,1fr) 380px; gap:16px; margin-top:32px; align-items:start; }
+.filters { display:grid; grid-template-columns:1.2fr 1fr 1.2fr auto; gap:12px; margin-top:28px; align-items:end; }
+.filters label { display:grid; gap:6px; font:600 12px Inter; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); }
+.wrap input, .wrap select { font:400 16px Inter,sans-serif; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); width:100%; letter-spacing:0; text-transform:none; }
+#status { margin-top:14px; color:var(--dim); font-size:14px; min-height:1.6em; }
+#map { height:min(70vh,640px); border-radius:18px; border:1px solid var(--line); background:var(--card); z-index:0; }
+.list { max-height:min(70vh,640px); overflow:auto; border:1px solid var(--line); border-radius:18px; background:var(--card); }
+.list button { display:block; width:100%; text-align:start; padding:12px 16px; background:none; border:0; border-bottom:1px solid var(--line); color:var(--ink); font:inherit; cursor:pointer; }
+.list button:hover, .list button[aria-current="true"] { background:color-mix(in srgb,var(--ink) 8%,transparent); }
+.list b { display:block; font-weight:600; }
+.list span { font-size:13px; color:var(--dim); }
+.panel { border:1px solid var(--line); border-radius:18px; background:var(--card); overflow:hidden; min-height:320px; }
+.panel .ph { aspect-ratio:16/9; }
+.panel .in { padding:20px; }
+.panel .empty { padding:40px 24px; color:var(--dim); text-align:center; }
+.panel address { font-style:normal; color:var(--dim); font-size:14px; margin-top:6px; }
+.tags { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+.tag { padding:4px 10px; border-radius:999px; border:1px solid var(--line); font-size:12px; color:var(--dim); }
+.tag.good { color:var(--leaf); border-color:color-mix(in srgb,var(--leaf) 45%,transparent); }
+.panel .src { font-size:13px; color:var(--dim); }
+.panel .src a { text-decoration:underline; }
+.note { margin:16px 0 4px; padding:12px 14px; border-radius:12px; background:var(--note-bg); border:1px solid var(--note-line); font-size:13px; color:var(--note-ink); }
+.dish { display:grid; grid-template-columns:1fr auto auto; gap:4px 12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+.dish small { display:block; color:var(--dim); font-size:12px; }
+.dish .pay { font-weight:700; }
+.dish button { width:34px; height:34px; border-radius:50%; border:1px solid var(--line); background:none; color:var(--ink); font:600 18px Inter; cursor:pointer; }
+.dish button:hover { background:var(--hot); border-color:var(--hot); color:#fff; }
+.basket { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; }
+.basket output { color:var(--dim); font-size:14px; }
+#orderMsg { margin-top:10px; font-size:13px; color:var(--gold); min-height:1.4em; }
+@media (max-width:1180px) { .finder { grid-template-columns:minmax(0,1fr) 360px; } .list { grid-column:1/-1; max-height:300px; order:3; } }
+@media (max-width:760px) { .finder { grid-template-columns:1fr; } .filters { grid-template-columns:1fr; } #map { height:56vh; } }
+
+.price { background:var(--card); }
+.sum { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:18px; overflow:hidden; margin-top:40px; }
+.sum div { background:var(--bg); padding:28px; }
+.sum b { display:block; font:700 clamp(36px,4.5vw,60px)/1 Fraunces,serif; color:var(--gold); direction:ltr; unicode-bidi:isolate; }
+.sum span { color:var(--dim); font-size:14px; }
+
+.app { display:grid; grid-template-columns:1fr minmax(260px,360px); gap:clamp(32px,7vw,110px); align-items:center; }
+.points { display:grid; gap:18px; margin-top:28px; padding:0; list-style:none; }
+.points li { padding-inline-start:18px; border-inline-start:2px solid var(--hot); }
+.points p { color:var(--dim); font-size:15px; }
+.phone { aspect-ratio:9/18.5; border-radius:44px; border:10px solid #2c2219; background:#0e0a07; overflow:hidden; box-shadow:0 40px 90px #0007; position:relative; }
+.phone .mapbg { position:absolute; inset:0; background:radial-gradient(circle at 30% 22%,#ff5a36 0 5px,#0000 6px),radial-gradient(circle at 68% 30%,#f5b53f 0 5px,#0000 6px),radial-gradient(circle at 46% 44%,#ff5a36 0 7px,#0000 8px),radial-gradient(circle at 20% 52%,#f5b53f 0 5px,#0000 6px),radial-gradient(circle at 78% 54%,#ff5a36 0 5px,#0000 6px),repeating-linear-gradient(0deg,#ffffff0a 0 1px,#0000 1px 34px),repeating-linear-gradient(90deg,#ffffff0a 0 1px,#0000 1px 34px),#1b140e; }
+.phone .sheet { position:absolute; inset:auto 0 0 0; background:var(--card); border-radius:26px 26px 0 0; padding:0 0 18px; overflow:hidden; }
+.phone .sheet .ph { height:118px; }
+.phone .sheet h3 { font-size:20px; padding:14px 16px 2px; }
+.phone .sheet p { font-size:12px; color:var(--dim); padding:0 16px; }
+.phone .row { display:flex; justify-content:space-between; padding:9px 16px; font-size:13px; border-top:1px solid var(--line); margin-top:8px; }
+.phone .row + .row { margin-top:0; }
+form.notify { display:grid; grid-template-columns:1.3fr 1fr auto; gap:12px; margin-top:28px; max-width:640px; }
+form.notify + output { display:block; margin-top:12px; color:var(--gold); min-height:1.5em; font-size:14px; }
+@media (max-width:860px) { .app { grid-template-columns:1fr; } .phone { max-width:300px; margin-inline:auto; } form.notify { grid-template-columns:1fr; } }
+
+.owners { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin-top:36px; }
+.owners article { border:1px solid var(--line); border-radius:18px; padding:26px; background:var(--bg); }
+.owners p { color:var(--dim); font-size:15px; margin-top:8px; }
+footer { padding:30px var(--pad) 40px; border-top:1px solid var(--line); color:var(--dim); font-size:13px; }
+footer p + p { margin-top:10px; }
+footer a { text-decoration:underline; }
+.leaflet-container { font:inherit; }
+@media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .hero .bg img, .slide img { animation:none; transition:none; transform:none; } }
+</style>
+</head>
+<body>
+<header class="nav" id="nav">
+  <a class="logo" href="#top">Tuck<b>map</b></a>
+  <a class="link" href="#kitchens" data-i18n="n1">Kitchens</a>
+  <a class="link" href="#finder" data-i18n="n2">The map</a>
+  <a class="link" href="#price" data-i18n="n3">The price</a>
+  <a class="link" href="#app" data-i18n="n4">The app</a>
+  <div class="tools">
+    <select id="lang" aria-label="Language" data-i18n-aria="lang">
+      <option value="en">English</option><option value="fr">Français</option><option value="de">Deutsch</option>
+      <option value="es">Español</option><option value="it">Italiano</option><option value="ru">Русский</option>
+      <option value="ja">日本語</option><option value="zh">中文</option><option value="ar">العربية</option>
+      <option value="fa">فارسی</option><option value="he">עברית</option>
+    </select>
+    <div class="theme" role="group" aria-label="Theme" data-i18n-aria="theme">
+      <button type="button" data-set="light" aria-label="Light" data-i18n-aria="thL"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <button type="button" data-set="dark" aria-label="Dark" data-i18n-aria="thD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+      <button type="button" data-set="system" aria-label="System" data-i18n-aria="thS"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
+    </div>
+  </div>
+  <a class="btn" href="#finder" data-i18n="cta">Open the map</a>
+</header>
+
+<main id="top">
+  <section class="hero night">
+    <div class="bg"><img src="img/hero.jpg" alt="" fetchpriority="high"></div>
+    <p class="eyebrow" data-i18n="hEy">Takeaways and restaurants across the UK</p>
+    <h1 data-i18n="h1">Every kitchen in town.<br><em>On one map.</em></h1>
+    <p class="lead" data-i18n="hLead">Open the map, tap a kitchen, see the menu, order. Like a sat nav, but for dinner.</p>
+    <div class="cta"><a class="btn" href="#finder" data-i18n="cta">Open the map</a><a class="btn ghost" href="#app" data-i18n="cta2">Get the app</a></div>
+    <div class="facts"><span><b id="councils">363</b><span data-i18n="f1">UK council areas on the map</span></span><span><b>£1.50</b><span data-i18n="f2">flat service per dish</span></span><span><b>0</b><span data-i18n="f3">hidden fees</span></span></div>
+  </section>
+
+  <!-- The photographs are decorative here: each caption names the kitchen. -->
+  <section class="cine" id="kitchens" aria-label="Kitchens on the map: scroll through them" data-i18n-aria="cAria">
+    <div class="stage night">
+      <figure class="slide on"><img src="img/pizza.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 01</p><h2 data-i18n="k_pizza">Pizza</h2><p data-i18n="l_pizza">Blistered crust, straight from the oven to your door.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/curry.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 02</p><h2 data-i18n="k_curry">Curry</h2><p data-i18n="l_curry">Slow sauces, hot naan, rice that is still steaming.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/burger.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 03</p><h2 data-i18n="k_burger">Burgers</h2><p data-i18n="l_burger">Smashed, stacked and wrapped while the cheese is melting.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/chicken.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 04</p><h2 data-i18n="k_chicken">Fried chicken</h2><p data-i18n="l_chicken">Crisp outside, juicy inside, by the box.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/chinese.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 05</p><h2 data-i18n="k_chinese">Chinese</h2><p data-i18n="l_chinese">Wok-tossed noodles, lifted out seconds before they leave.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/kebab.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 06</p><h2 data-i18n="k_kebab">Kebab</h2><p data-i18n="l_kebab">Carved, rolled and wrapped tight.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/fish.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 07</p><h2 data-i18n="k_fish">Fish &amp; chips</h2><p data-i18n="l_fish">Proper batter, thick chips, a wedge of lemon.</p></figcaption></figure>
+      <figure class="slide"><img loading="lazy" src="img/sushi.jpg" alt=""><figcaption><p class="eyebrow"><span data-i18n="kLabel">Kitchen</span> 08</p><h2 data-i18n="k_sushi">Sushi</h2><p data-i18n="l_sushi">Cut to order, packed cold, eaten fresh.</p></figcaption></figure>
+      <p class="count" id="count">01 / 08</p>
+      <div class="bar"></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="finder">
+    <p class="eyebrow" data-i18n="mEy">The map · live data</p>
+    <h2 data-i18n="mH">Pick a town.<br><em>See who is cooking.</em></h2>
+    <p class="lead" data-i18n="mLead">These are real places. The names, addresses and hygiene ratings come live from the Food Standards Agency register, the official list of food businesses in the UK.</p>
+    <form class="filters" id="filters">
+      <label><span data-i18n="fArea">Council area</span><select id="area" name="area"><option data-i18n="sLoad">Loading…</option></select></label>
+      <label><span data-i18n="fType">Type</span><select id="type" name="type"><option value="7844" data-i18n="tTake">Takeaways</option><option value="1" data-i18n="tRest">Restaurants and cafés</option><option value="both" data-i18n="tBoth">Both</option></select></label>
+      <label><span data-i18n="fName">Name contains</span><input id="q" name="q" placeholder="pizza, kebab, curry…" data-i18n-ph="fPh" autocomplete="off"></label>
+      <button class="btn" type="submit" data-i18n="fGo">Show on map</button>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <div class="finder">
+      <div class="list" id="list" aria-label="Places found" data-i18n-aria="listAria"></div>
+      <div id="map" aria-label="Map of places found" data-i18n-aria="mapAria"></div>
+      <aside class="panel" id="panel" aria-live="polite"><p class="empty" data-i18n="empty">Tap a dot on the map or a name in the list to open that kitchen.</p></aside>
+    </div>
+  </section>
+
+  <section class="wrap price" id="price">
+    <p class="eyebrow" data-i18n="pEy">The price</p>
+    <h2 data-i18n="pH">The kitchen's price,<br>plus <em>£1.50 a dish.</em></h2>
+    <p class="lead" data-i18n="pLead">The restaurant sets its menu price and keeps it. We add one flat £1.50 per dish for running the map, the app and the order. You see both numbers before you pay.</p>
+    <div class="sum">
+      <div><b>£9.50</b><span data-i18n="s1">Margherita, the kitchen's own menu price (sample)</span></div>
+      <div><b>+ £1.50</b><span data-i18n="s2">Tuckmap service, the same on every dish</span></div>
+      <div><b>£11.00</b><span data-i18n="s3">what you pay, shown before you order</span></div>
+    </div>
+  </section>
+
+  <section class="wrap app" id="app">
+    <div>
+      <p class="eyebrow" data-i18n="aEy">The app</p>
+      <h2 data-i18n="aH">A food guide<br><em>in your pocket.</em></h2>
+      <p class="lead" data-i18n="aLead">One screen, every kitchen around you. Wherever you tap, the menu opens: what they cook, what it costs, how to order.</p>
+      <ul class="points">
+        <li><h3 data-i18n="a1h">Works in every UK town</h3><p data-i18n="a1p">The map is built on the national register, so a new town needs no setup.</p></li>
+        <li><h3 data-i18n="a2h">Tap, read, order</h3><p data-i18n="a2p">No searching through ten websites. The menu is one tap from the map.</p></li>
+        <li><h3 data-i18n="a3h">Local kitchens first</h3><p data-i18n="a3p">Independent takeaways sit on the same map as the big names.</p></li>
+      </ul>
+      <form class="notify" id="notify" novalidate>
+        <input type="email" name="email" placeholder="you@example.com" autocomplete="email" dir="ltr" aria-label="Email" data-i18n-aria="nEmail" required>
+        <select name="role" aria-label="I am" data-i18n-aria="rAria"><option data-i18n="r1">I want to order</option><option data-i18n="r2">I run a kitchen</option></select>
+        <button class="btn" type="submit" data-i18n="nGo">Tell me at launch</button>
+      </form>
+      <output role="status"></output>
+    </div>
+    <div class="phone night" aria-hidden="true">
+      <div class="mapbg"></div>
+      <div class="sheet">
+        <div class="ph"><img loading="lazy" src="img/pizza.jpg" alt=""></div>
+        <h3 data-i18n="ph1">Pizza, 0.3 miles</h3><p data-i18n="ph2">Sample screen</p>
+        <div class="row"><span>Margherita</span><b>£11.00</b></div>
+        <div class="row"><span>Pepperoni</span><b>£12.50</b></div>
+        <div class="row"><span>Garlic bread</span><b>£6.00</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap price" id="owners">
+    <p class="eyebrow" data-i18n="oEy">For restaurants and takeaways</p>
+    <h2 data-i18n="oH">Your menu on<br><em>every phone in town.</em></h2>
+    <div class="owners">
+      <article><h3 data-i18n="o1h">You are already on the map</h3><p data-i18n="o1p">Every registered kitchen has a dot. Claim yours and add your real menu and photos.</p></article>
+      <article><h3 data-i18n="o2h">Your prices stay yours</h3><p data-i18n="o2p">We do not cut your menu price. Our £1.50 per dish is added on top and shown to the customer.</p></article>
+      <article><h3 data-i18n="o3h">An advert that takes orders</h3><p data-i18n="o3p">People browsing the map see your dishes first, then order in two taps.</p></article>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p data-i18n="foot"><strong>Sample project.</strong> Tuckmap is a fictional brand. No order is sent, no kitchen is contacted, and the businesses on the map are not partners of this sample. Menus and prices are samples, not the menus of the places shown. Design and code by Devbyvito.</p>
+  <!-- Licence and credit lines stay in English in every language: they are the wording the licences ask for. -->
+  <p lang="en" dir="ltr">Places, addresses and ratings: Food Standards Agency, food hygiene ratings data. Contains public sector information licensed under the <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>. Map: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.</p>
+  <p lang="en" dir="ltr">Photos (cropped) from Wikimedia Commons: <a href="https://commons.wikimedia.org/wiki/File:Punch_Neapolitan_Pizza_(2257039638).jpg">oven</a> by Tony Webster, CC BY 2.0; <a href="https://commons.wikimedia.org/wiki/File:Margherita_Originale.JPG">pizza</a> by Mario56, CC BY-SA 3.0; <a href="https://commons.wikimedia.org/wiki/File:Chicken_Tikka_Masala_@_Indian%27s_Food_@_Annecy_(38894403364).jpg">curry</a> by Guilhem Vellut, CC BY 2.0; <a href="https://commons.wikimedia.org/wiki/File:Cheeseburger_and_fries_2.jpg">burger</a> by Kurtkaiser, CC0; <a href="https://commons.wikimedia.org/wiki/File:Fried_Chicken_(Unsplash).jpg">fried chicken</a> by Brian Chan, CC0; <a href="https://commons.wikimedia.org/wiki/File:Chow_mein_2.jpg">chow mein</a> by Gannu03, CC BY-SA 4.0; <a href="https://commons.wikimedia.org/wiki/File:D%C3%B6ner_Kebab_Wrap_-_What_The_Pitta.jpg">kebab</a> by Andy Li, CC0; <a href="https://commons.wikimedia.org/wiki/File:Modern_fish_and_chips_(8368723726).jpg">fish and chips</a> by LearningLark, CC BY 2.0; <a href="https://commons.wikimedia.org/wiki/File:Uramaki_and_nigiri_plate.jpeg">sushi</a> by BryanDavis, CC BY-SA 3.0.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="i18n.js"></script>
+<script>
+// Tuckmap sample: header, theme, language, scroll-driven kitchens, live map of real UK food businesses, sample menus, demo basket.
+const root = document.documentElement, $ = (s) => document.querySelector(s), $$ = (s) => document.querySelectorAll(s);
+const read = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const store = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+// Small DOM builder. Text from the register is always set as text, never as HTML.
+function h(tag, props, ...kids) { const el = Object.assign(document.createElement(tag), props || {}); for (const k of kids) if (k != null && k !== false && k !== "") el.append(k); return el; }
+const fill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (v && k in v ? v[k] : m));
+
+// Theme: "system" follows the device and reacts when the device setting changes.
+const sysDark = matchMedia("(prefers-color-scheme: dark)");
+let themePref = read("tm-theme") || "system";
+function applyTheme() {
+  root.dataset.theme = themePref === "system" ? (sysDark.matches ? "dark" : "light") : themePref;
+  $$(".theme button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.set === themePref));
+}
+sysDark.addEventListener("change", applyTheme);
+$$(".theme button").forEach((b) => b.addEventListener("click", () => { themePref = b.dataset.set; store("tm-theme", themePref); applyTheme(); }));
+applyTheme();
+
+// Language: English is read from the markup plus the lines below; the other ten are in i18n.js.
+const I18N = window.I18N || {}, RTL = ["ar", "fa", "he"], langSel = $("#lang");
+const EN = { title: document.title,
+  sAsk: "Asking the register…", sFound: "{n} places on the map in {area}.", sMore: " The register lists {total}; narrow the search to see the rest.", sSrc: " Source: Food Standards Agency.",
+  sNone: "Nothing found in {area} for this search.", sErr: "The register did not answer ({e}). Try again in a moment.",
+  ty7844: "Takeaway", ty1: "Restaurant or café", rate: "Food hygiene rating {v} of 5", rateOther: "Food hygiene: {v}",
+  src: "From the official register.", srcLink: "See this place on food.gov.uk",
+  noteMenu: "Sample menu ({k}) with sample prices. This place has not joined, so this is not its own menu.", noteNone: "This place has not joined yet. Its menu and photos appear here when it does.",
+  plus: "{p} menu + {f} service", bEmpty: "Basket is empty", bCount: "Dishes: {n} · {sum}", order: "Order", oDemo: "Demo only: no order was sent and this kitchen was not contacted.", oAdd: "Add a dish first.", add: "Add {name}",
+  nOk: "Thank you. This is a sample page, so nothing was sent.", nBad: "Please enter an email like you@example.com." };
+$$("[data-i18n]").forEach((el) => { EN[el.dataset.i18n] = el.innerHTML; });
+$$("[data-i18n-aria]").forEach((el) => { EN[el.dataset.i18nAria] = el.getAttribute("aria-label"); });
+$$("[data-i18n-ph]").forEach((el) => { EN[el.dataset.i18nPh] = el.placeholder; });
+I18N.en = EN;
+let T = EN;
+function setLang(code) {
+  if (!I18N[code]) code = "en";
+  T = { ...EN, ...I18N[code] };
+  root.lang = code === "zh" ? "zh-Hans" : code; root.dir = RTL.includes(code) ? "rtl" : "ltr";
+  $$("[data-i18n]").forEach((el) => { el.innerHTML = T[el.dataset.i18n]; }); // our own strings, never user input
+  $$("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", T[el.dataset.i18nAria]); });
+  $$("[data-i18n-ph]").forEach((el) => { el.placeholder = T[el.dataset.i18nPh]; });
+  $$(".theme button").forEach((b) => { b.title = b.getAttribute("aria-label"); });
+  document.title = T.title; langSel.value = code;
+  relabel();
+  return code;
+}
+langSel.addEventListener("change", () => store("tm-lang", setLang(langSel.value)));
+
+// Header and the scroll-driven kitchens
+const nav = $("#nav"), cine = $(".cine"), slides = [...$$(".slide")], count = $("#count");
+function onScroll() {
+  nav.classList.toggle("solid", scrollY > innerHeight * .6);
+  const r = cine.getBoundingClientRect(), x = -r.top / (r.height - innerHeight), p = x > 0 ? Math.min(1, x) : 0; // NaN -> 0 (background tab)
+  const i = Math.min(slides.length - 1, Math.floor(p * slides.length));
+  slides.forEach((s, n) => s.classList.toggle("on", n === i));
+  count.textContent = String(i + 1).padStart(2, "0") + " / " + String(slides.length).padStart(2, "0");
+  cine.style.setProperty("--p", p.toFixed(4));
+}
+addEventListener("scroll", () => requestAnimationFrame(onScroll), { passive: true }); onScroll();
+
+// Kitchens: how a place is recognised from its name, and the sample menu shown for it. The kitchen's display name is
+// T["k_" + key]. Dish names stay as written: a menu is the kitchen's own text. Order matters: the first match wins
+// (kebab before burger, because of "grill").
+const FEE = 1.5, gbp = (n) => "£" + n.toFixed(2);
+const KITCHENS = [
+  { key: "pizza", re: /pizz|napol|margher/i, menu: [["Margherita", "Tomato, mozzarella, basil", 9.5], ["Pepperoni", "Tomato, mozzarella, pepperoni", 11], ["Garlic bread", "With mozzarella", 4.5], ["Tiramisu", "House recipe", 5]] },
+  { key: "curry", re: /curry|indian|tandoor|balti|spice|masala|bengal|punjab|bombay|biryani/i, menu: [["Chicken tikka masala", "Creamy tomato sauce", 10.5], ["Lamb rogan josh", "Slow cooked", 11.5], ["Pilau rice", "", 3.5], ["Garlic naan", "", 3]] },
+  { key: "kebab", re: /kebab|kebap|turkish|shawarma|doner|döner|charcoal|istanbul|gyros|falafel/i, menu: [["Doner wrap", "Salad and sauce", 8], ["Chicken shish", "With rice and salad", 11], ["Falafel wrap", "", 7], ["Chips", "", 3]] },
+  { key: "fish", re: /fish|chippy|chip shop|fryer|plaice|haddock|\bcod\b/i, menu: [["Cod and chips", "", 10.5], ["Haddock and chips", "", 11], ["Battered sausage", "", 2.5], ["Mushy peas", "", 1.8]] },
+  { key: "chicken", re: /chicken|peri|wings|\bfried\b/i, menu: [["3 piece box", "With fries", 7.5], ["Wings, 8 pieces", "Hot or mild", 6.5], ["Chicken burger", "Fillet, lettuce, mayo", 6], ["Corn on the cob", "", 2.5]] },
+  { key: "burger", re: /burger|smash|diner/i, menu: [["Cheeseburger", "Beef, cheddar, pickles", 9], ["Double smash", "Two patties, house sauce", 11.5], ["Fries", "Skin on", 3.5], ["Milkshake", "Vanilla", 4.5]] },
+  { key: "chinese", re: /chinese|wok|oriental|noodle|canton|peking|dragon|china|szechuan|sichuan|dim sum|mandarin/i, menu: [["Chicken chow mein", "", 8], ["Sweet and sour chicken", "", 8.5], ["Egg fried rice", "", 3.5], ["Spring rolls, 4 pieces", "", 4]] },
+  { key: "sushi", re: /sushi|japan|ramen|sashimi|bento|katsu/i, menu: [["Salmon nigiri, 6 pieces", "", 8.5], ["California roll, 8 pieces", "", 7.5], ["Chicken katsu curry", "", 10.5], ["Miso soup", "", 2.5]] },
+];
+const kitchenOf = (name) => KITCHENS.find((k) => k.re.test(name)) || null; // null = we do not guess a menu for this place
+
+// The register: Food Standards Agency food hygiene ratings API (open data, no key).
+const API = "https://api.ratings.food.gov.uk";
+const api = (path) => fetch(API + path, { headers: { "x-api-version": "2", accept: "application/json" } }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+const PAGE = 200, status = $("#status"), area = $("#area"), list = $("#list"), panel = $("#panel");
+
+const map = L.map("map", { scrollWheelZoom: false, preferCanvas: true }).setView([54.5, -3], 5);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+const dots = L.layerGroup().addTo(map);
+let places = [], current = null, basket = new Map(), statusParts = [];
+
+// The status line is kept as [key, values] parts so it can be written again in another language.
+function say(...parts) { statusParts = parts.filter(Boolean); status.textContent = statusParts.map(([k, v]) => fill(T[k], v)).join(""); }
+const typeName = (p) => T["ty" + p.BusinessTypeID] || p.BusinessType;
+const rowLabel = (p) => [p.kitchen && T["k_" + p.kitchen.key], typeName(p), p.PostCode].filter(Boolean).join(" · ");
+const ratingText = (p) => /^[0-5]$/.test(p.RatingValue) ? fill(T.rate, { v: p.RatingValue }) : fill(T.rateOther, { v: String(p.RatingValue).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase() });
+const emptyPanel = () => { const e = h("p", { className: "empty", textContent: T.empty }); e.dataset.i18n = "empty"; return e; };
+
+async function loadAreas() {
+  try {
+    const { authorities } = await api("/Authorities/basic");
+    authorities.sort((a, b) => a.Name.localeCompare(b.Name));
+    area.replaceChildren(...authorities.map((a) => h("option", { value: a.LocalAuthorityId, textContent: a.Name })));
+    $("#councils").textContent = authorities.length;
+    area.value = (authorities.find((a) => a.Name === "Westminster") || authorities[0]).LocalAuthorityId;
+    search();
+  } catch (e) { say(["sErr", { e: e.message }]); }
+}
+async function search() {
+  const type = $("#type").value, q = $("#q").value.trim(), ids = type === "both" ? [7844, 1] : [type];
+  say(["sAsk"]);
+  try {
+    const pages = await Promise.all(ids.map((id) => api("/Establishments?localAuthorityId=" + encodeURIComponent(area.value) + "&businessTypeId=" + id + "&pageSize=" + PAGE + (q ? "&name=" + encodeURIComponent(q) : ""))));
+    const total = pages.reduce((n, p) => n + p.meta.totalCount, 0), where = area.selectedOptions[0].textContent;
+    places = pages.flatMap((p) => p.establishments).filter((e) => e.geocode && e.geocode.latitude && e.geocode.longitude);
+    draw();
+    if (places.length) say(["sFound", { n: places.length, area: where }], total > places.length && ["sMore", { total }], ["sSrc"]); else say(["sNone", { area: where }]);
+  } catch (e) { say(["sErr", { e: e.message }]); }
+}
+function draw() {
+  dots.clearLayers(); current = null; panel.replaceChildren(emptyPanel());
+  const bounds = [];
+  for (const p of places) {
+    const at = [+p.geocode.latitude, +p.geocode.longitude]; bounds.push(at);
+    p.kitchen = kitchenOf(p.BusinessName);
+    p.dot = L.circleMarker(at, { radius: 7, weight: 2, color: "#15100b", fillColor: p.BusinessTypeID === 1 ? "#f5b53f" : "#ff5a36", fillOpacity: .95 }).addTo(dots).on("click", () => open(p, true));
+    p.dot.bindTooltip(p.BusinessName);
+  }
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  list.replaceChildren(...places.slice().sort((a, b) => a.BusinessName.localeCompare(b.BusinessName)).map((p) => {
+    p.row = h("button", { type: "button", onclick: () => open(p, false) }, h("b", { textContent: p.BusinessName }), h("span", { textContent: rowLabel(p) }));
+    return p.row;
+  }));
+}
+function open(p, fromMap) {
+  if (current) { current.dot.setStyle({ radius: 7, color: "#15100b" }); current.row.removeAttribute("aria-current"); }
+  current = p; basket = new Map();
+  p.dot.setStyle({ radius: 11, color: "#fff" }).bringToFront(); p.row.setAttribute("aria-current", "true");
+  if (fromMap) p.row.scrollIntoView({ block: "nearest" }); else map.setView(p.dot.getLatLng(), Math.max(map.getZoom(), 16));
+  showPanel();
+}
+function showPanel() {
+  const p = current, k = p.kitchen, address = [p.AddressLine1, p.AddressLine2, p.AddressLine3, p.AddressLine4, p.PostCode].filter(Boolean).join(", ");
+  const good = p.RatingValue === "5" || p.RatingValue === "4" || p.RatingValue === "Pass";
+  const inner = h("div", { className: "in" },
+    h("h3", { textContent: p.BusinessName, dir: "auto" }), h("address", { textContent: address, dir: "auto" }),
+    h("div", { className: "tags" }, h("span", { className: "tag", textContent: typeName(p) }), h("span", { className: "tag" + (good ? " good" : ""), textContent: ratingText(p) }), k && h("span", { className: "tag", textContent: T["k_" + k.key] })),
+    h("p", { className: "src" }, T.src + " ", h("a", { href: "https://ratings.food.gov.uk/business/" + encodeURIComponent(p.FHRSID), target: "_blank", rel: "noopener", textContent: T.srcLink }), "."));
+  if (k) {
+    inner.append(h("p", { className: "note", textContent: fill(T.noteMenu, { k: T["k_" + k.key] }) }));
+    for (const [name, desc, price] of k.menu) inner.append(h("div", { className: "dish" },
+      h("div", null, h("b", { textContent: name, lang: "en", dir: "auto" }), desc && h("small", { textContent: desc, lang: "en", dir: "auto" }), h("small", { textContent: fill(T.plus, { p: gbp(price), f: gbp(FEE) }) })),
+      h("span", { className: "pay", textContent: gbp(price + FEE) }),
+      h("button", { type: "button", textContent: "+", ariaLabel: fill(T.add, { name }), onclick: () => { basket.set(name, { price, qty: (basket.get(name)?.qty || 0) + 1 }); tally(); } })));
+    inner.append(h("div", { className: "basket" }, h("output", { id: "tally" }), h("button", { className: "btn", type: "button", textContent: T.order, onclick: () => { $("#orderMsg").textContent = basket.size ? T.oDemo : T.oAdd; } })), h("p", { id: "orderMsg", role: "status" }));
+  } else inner.append(h("p", { className: "note", textContent: T.noteNone }));
+  panel.replaceChildren(h("div", { className: "ph" }, h("img", { src: "img/" + (k ? k.key : "hero") + ".jpg", alt: "" })), inner);
+  if (k) tally();
+}
+const basketTotal = (b) => [...b.values()].reduce((sum, d) => sum + (d.price + FEE) * d.qty, 0);
+function tally() { const n = [...basket.values()].reduce((s, d) => s + d.qty, 0); $("#tally").textContent = n ? fill(T.bCount, { n, sum: gbp(basketTotal(basket)) }) : T.bEmpty; $("#orderMsg").textContent = ""; }
+// After a language change: the status line, the list labels and the open panel are written again (the basket is kept).
+function relabel() { say(...statusParts); places.forEach((p) => { if (p.row) p.row.lastChild.textContent = rowLabel(p); }); if (current) showPanel(); }
+
+$("#filters").addEventListener("submit", (e) => { e.preventDefault(); search(); });
+area.addEventListener("change", search); $("#type").addEventListener("change", search);
+
+// Launch form: checked here, sent nowhere.
+const notify = $("#notify");
+notify.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notify.email.value.trim());
+  notify.nextElementSibling.textContent = ok ? T.nOk : T.nBad;
+  if (ok) notify.reset(); else notify.email.focus();
+});
+
+setLang(read("tm-lang") || (navigator.languages || [navigator.language || "en"]).map((l) => l.slice(0, 2).toLowerCase()).find((l) => I18N[l]) || "en");
+loadAreas();
+
+window.runChecks = () => {
+  const bad = [];
+  if (kitchenOf("Pizza Season")?.key !== "pizza") bad.push("pizza name");
+  if (kitchenOf("Golden Dragon Chinese Takeaway")?.key !== "chinese") bad.push("chinese name");
+  if (kitchenOf("Istanbul Grill Kebab House")?.key !== "kebab") bad.push("kebab before burger");
+  if (kitchenOf("The Red Lion") !== null) bad.push("no guess for an unknown name");
+  if (basketTotal(new Map([["a", { price: 9.5, qty: 2 }]])) !== 22) bad.push("basket: (9.50 + 1.50) x 2 = 22.00");
+  if (fill("{n} of {total}", { n: 3 }) !== "3 of {total}") bad.push("fill keeps unknown placeholders");
+  const keys = Object.keys(EN);
+  for (const [code, dict] of Object.entries(I18N)) { const miss = keys.filter((k) => !dict[k]); if (miss.length) bad.push(code + ": missing [" + miss + "]"); }
+  return bad.length ? bad : "checks done: " + Object.keys(I18N).length + " languages, " + keys.length + " strings each";
+};
+</script>
+</body>
+</html>
